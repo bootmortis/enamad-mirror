@@ -1,71 +1,76 @@
-import requests
-from bs4 import BeautifulSoup
-import urllib3
-
+import os
 import csv
 
+import jdatetime
+import requests
+import urllib3
+from bs4 import BeautifulSoup
+
+import constants as consts
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+page_numbers = range(1, 3000) 
 
-# Define the URL and page numbers to parse
-url = "https://www.enamad.ir/DomainListForMIMT"
-page_numbers = range(1, 11) # Change this range to select different pages
+jalali_now = jdatetime.date.today()
 
-# Define the CSV header
-csv_header = ["Domain", "Title", "Service", "Star", "State", "City"]
+domains = []
+break_main = False
+for page_number in page_numbers:
+    if break_main:
+        break
 
-# Create a CSV file and write the header
-# with open("enamad_data.csv", "w", encoding="utf-8", newline="") as f:
-    # writer = csv.writer(f)
-    # writer.writerow(csv_header)
+    response = requests.get(consts.ENAMAD_URL + str(page_number), allow_redirects=True, verify=False)
+    response.raise_for_status()
 
-    # Parse each page and extract the required data
-    # for page_number in page_numbers:
-# page_url = url + str(page_number)
-response = requests.get(url, allow_redirects=True, verify=False)
-response.raise_for_status()
+    soup = BeautifulSoup(response.text, "html.parser")
+    rows = soup.find("div", class_="table", style="margin-top: 40px;").find_all("div", class_="row")[2:]
+    for row in rows:
+        md_1 = row.find_all("div", class_="col-md-1")
+        md_2 = row.find_all("div", class_="col-md-2")
+        id = md_1[0].text.strip()
+        enamad = md_2[0].find("a").get("href")
+        url = md_2[0].find("a", class_="exlink").get("href")
+        title = row.find("div", class_="col-md-3").text.strip()
+        province = md_1[1].text.strip()
+        city = md_1[2].text.strip()
 
-soup = BeautifulSoup(response.text, "html.parser")
-rows = soup.find("div", class_="table", style="margin-top: 40px;").find_all("div", class_="row")[2:]
-for row in rows:
-    md_1 = row.find_all("div", class_="col-md-1")
-    md_2 = row.find_all("div", class_="col-md-2")
-    id = md_1[0].text.strip()
-    enamad = md_2[0].find("a").get("href")
-    url = md_2[0].find("a", class_="exlink").get("href")
-    title = row.find("div", class_="col-md-3").text.strip()
-    province = md_1[1].text.strip()
-    city = md_1[2].text.strip()
+        # count img elements in md_2[1]
+        stars = len(md_2[1].find_all("img"))
+        issued_date = md_1[3].text.strip()
+        expire_date = md_1[4].text.strip()
 
-    # count img elements in md_2[1]
-    stars = len(md_2[1].find_all("img"))
-    issued_date = md_1[3].text.strip()
-    expire_date = md_1[4].text.strip()
+        if jdatetime.datetime.strptime(expire_date, '%Y/%m/%d').date() < jalali_now:
+            if stars == 1:
+                break_main = True
+                break
+            else:
+                continue
 
+        domains.append({
+            "id": id,
+            "enamad": enamad,
+            "domain": url,
+            "title": title,
+            "province": province,
+            "city": city,
+            "stars": stars,
+            "issued_date": issued_date,
+            "expire_date": expire_date
+        })
 
-    # print all in json
-    print({
-        "id": id,
-        "enamad": enamad,
-        "url": url,
-        "title": title,
-        "province": province,
-        "city": city,
-        "stars": stars,
-        "issued_date": issued_date,
-        "expire_date": expire_date
-    })
+data = sorted(domains, key=lambda d: d['domain'])
 
-    
-    break
+# make sure directory exists
+os.makedirs(os.path.dirname(consts.CSV_OUT_PATH), exist_ok=True)
 
-        # for item in items:
-        #     domain = item.find("div", class_="col-sm-12 col-md-1").get("value")
-        #     url = item.find("div", class_="col-sm-12 col-md-2").get("value")
-        #     # title = item.find("input", id="txt_title").get("value")
-        #     # service = item.find("select", id="drp_service").find("option", selected=True).text.strip()
-        #     # star = item.find("select", id="drp_star").find("option", selected=True).text.strip()
-        #     # state = item.find("select", id="locationState").find("option", selected=True).text.strip()
-        #     # city = item.find("select", id="locationCity").find("option", selected=True).text.strip()
-        #     writer.writerow([domain, url])
+# Open the CSV file for writing
+with open(consts.CSV_OUT_PATH, "w", encoding="utf-8") as csvfile:
+    # Create the DictWriter object
+    writer = csv.DictWriter(csvfile, fieldnames=data[0].keys())
+
+    # Write the column names
+    writer.writeheader()
+
+    # Write the data rows
+    writer.writerows(data)
