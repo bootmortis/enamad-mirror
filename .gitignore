@@ -161,3 +161,5 @@ cython_debug/
 
 
 .git-credentials
+
+.history
